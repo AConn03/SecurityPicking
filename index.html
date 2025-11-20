@@ -81,6 +81,34 @@
             background-color: #3182ce; 
         }
 
+        /* Styles for the Shift Size Toggle buttons */
+        .shift-toggle-group {
+            display: flex;
+            border-radius: 6px;
+            overflow: hidden;
+            margin-bottom: 15px;
+            border: 1px solid #4299e1;
+        }
+        .shift-toggle-group button {
+            padding: 8px 15px;
+            margin: 0;
+            background-color: white;
+            color: #4299e1;
+            border: none;
+            border-radius: 0; /* Remove rounded corners inside the group */
+            transition: background-color 0.15s ease, color 0.15s ease;
+        }
+        .shift-toggle-group button:hover {
+            background-color: #e5f4ff;
+        }
+        .shift-toggle-group button.active {
+            background-color: #4299e1;
+            color: white;
+            font-weight: bold;
+        }
+        .shift-toggle-group button:first-child { border-right: 1px solid #4299e1; }
+
+
         /* --- Global Table Styles --- */
         table { 
             width: 100%; 
@@ -234,6 +262,14 @@
         <!-- End New Date Range Inputs -->
 
         <input type="file" id="excel-file" accept=".xlsx, .xls, .csv">
+        
+        <!-- NEW: Shift Size Toggle -->
+        <div class="shift-toggle-group" id="shift-toggle-group">
+            <button id="shift-1-person" onclick="setShiftSize(1)" class="active">1 Person / Shift</button>
+            <button id="shift-2-person" onclick="setShiftSize(2)">2 People / Shift</button>
+        </div>
+        <!-- END NEW: Shift Size Toggle -->
+        
         <button onclick="processFile()">Generate Schedule</button>
 
         <!-- New Holiday Toggle -->
@@ -278,6 +314,7 @@
     let raNames = [];
     let unavailableDatesList = [];
     let schedule = {}; // Maps DateKey (MM/DD/YYYY) to shift info
+    let shiftSize = 2; // NEW: Default to 2 people per shift
 
     const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const fullMonths = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -294,6 +331,31 @@
         '12/25': 'Christmas Day',
         '12/31': 'New Year\'s Eve',
     };
+
+
+    // --- New UI Control Function ---
+
+    function setShiftSize(size) {
+        shiftSize = size;
+        const btn1 = document.getElementById('shift-1-person');
+        const btn2 = document.getElementById('shift-2-person');
+        
+        if (size === 1) {
+            btn1.classList.add('active');
+            btn2.classList.remove('active');
+        } else {
+            btn1.classList.remove('active');
+            btn2.classList.add('active');
+        }
+        
+        // Clear previous schedule if generated to encourage recalculation
+        if (Object.keys(schedule).length > 0) {
+            schedule = {};
+            document.getElementById('calendar-output').innerHTML = '<p>Shift size changed. Please click "Generate Schedule" to recalculate.</p>';
+            document.getElementById('shift-totals-output').innerHTML = '';
+            document.getElementById('pairwise-output').innerHTML = '';
+        }
+    }
 
 
     // --- Utility Functions ---
@@ -392,7 +454,7 @@
             // 4. Unavailable Dates (Processed and stored separately)
             const unavailableDates = parseUnavailableDates(rowData[unavailableColumnIndex]);
             unavailableDatesList.push(unavailableDates);
-            row.push(unavailableDates.length > 0 ? unavailableDates.join('; ') : '');
+            row.push(unavailableDates.length > 0 ? unavailableDates.join(', ') : '');
 
             raMatrix.push(row);
         }
@@ -400,6 +462,9 @@
 
     function createCalendar() {
         if (raMatrix.length === 0) return {};
+
+        // Get the required number of people for the shift
+        const spotsNeeded = shiftSize; // Uses the global variable set by the new toggle button
 
         // Read user-defined date range
         const startDateInput = document.getElementById('start-date').value;
@@ -465,21 +530,35 @@
 
             // 6. Assign Spots with fairness (lowest count first)
             let assignedPeople = [];
-            if (availablePeople.length >= 2) {
+            
+            if (availablePeople.length >= spotsNeeded) {
+                // Sort by current shift count (lowest first)
                 availablePeople.sort((a, b) => selectionCounts[a] - selectionCounts[b]);
 
-                assignedPeople = availablePeople.slice(0, 2);
+                // Assign the required number of people
+                assignedPeople = availablePeople.slice(0, spotsNeeded);
 
                 assignedPeople.forEach(person => {
                     selectionCounts[person] += 1;
                 });
-            } else if (availablePeople.length === 1) {
-                assignedPeople = [availablePeople[0], ''];
-                selectionCounts[availablePeople[0]] += 1;
+            } else if (availablePeople.length > 0) {
+                // Not enough people for a full crew, assign what's available
+                assignedPeople = availablePeople;
+                
+                // Fill the remaining spots with empty strings/markers
+                while (assignedPeople.length < spotsNeeded) {
+                    assignedPeople.push(''); // Use empty string for partial assignment
+                }
+                
+                availablePeople.forEach(person => {
+                    selectionCounts[person] += 1;
+                });
             } else {
-                assignedPeople = ['EMPTY', 'EMPTY'];
+                // No one is available
+                // Fill all required spots with 'EMPTY' marker
+                assignedPeople = Array(spotsNeeded).fill('EMPTY');
             }
-
+            
             // 7. Populate Schedule
             schedule[dateKey] = {
                 date: date,
@@ -506,11 +585,19 @@
         }, {});
 
         for (const dateKey in schedule) {
-            const [personA, personB] = schedule[dateKey].assigned;
+            const assigned = schedule[dateKey].assigned.filter(p => p && p !== 'EMPTY'); // Only count assigned RAs
 
-            if (personA && personA !== 'EMPTY' && personB && personB !== 'EMPTY') {
-                pairwiseMatrix[personA][personB] += 1;
-                pairwiseMatrix[personB][personA] += 1; // Symmetric
+            if (assigned.length >= 2) {
+                // Iterate over all unique pairs in the assigned array
+                for (let i = 0; i < assigned.length; i++) {
+                    for (let j = i + 1; j < assigned.length; j++) {
+                        const personA = assigned[i];
+                        const personB = assigned[j];
+
+                        pairwiseMatrix[personA][personB] += 1;
+                        pairwiseMatrix[personB][personA] += 1; // Symmetric
+                    }
+                }
             }
         }
         return pairwiseMatrix;
@@ -600,8 +687,9 @@
                     const assigned = item.assigned;
                     
                     assigned.forEach(person => {
-                        const isFiller = person === '' || person === 'EMPTY';
-                        const display = isFiller ? (person === '' ? '—' : 'EMPTY') : person;
+                        // Check for both empty string (partial assignment) and 'EMPTY' marker
+                        const isFiller = person === '' || person === 'EMPTY'; 
+                        const display = person === 'EMPTY' ? 'EMPTY' : (person === '' ? '— (Partial)' : person);
                         const shiftClass = isFiller ? 'empty-shift' : 'shift-ra';
                         cellContent += `<div class="${shiftClass}">${display}</div>`;
                     });
@@ -719,6 +807,7 @@
             const sheetName = workbook.SheetNames[0]; 
             const worksheet = workbook.Sheets[sheetName];
             
+            // Note: raw: false ensures date formatting is handled by sheet_to_json
             const excelData = XLSX.utils.sheet_to_json(worksheet, { header: 1, range: 1, raw: false }); 
             
             if (excelData.length === 0) {
@@ -756,7 +845,7 @@
         reader.readAsArrayBuffer(file);
     }
     
-    // Set default dates on load
+    // Set default dates and listeners on load
     document.addEventListener('DOMContentLoaded', () => {
         // Set up the default date values dynamically for the current year
         const currentYear = new Date().getFullYear();
@@ -770,6 +859,9 @@
                  displayCalendar();
              }
         });
+        
+        // Ensure the default active button is set
+        setShiftSize(2);
     });
 </script>
 
