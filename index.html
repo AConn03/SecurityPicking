@@ -699,7 +699,8 @@
         };
 
         try {
-            const docRef = window.fs.doc(window.fs.collection(db, 'artifacts', appId, 'public', 'data', 'schedules'), crypto.randomUUID());
+            const collectionRef = window.fs.collection(db, 'artifacts', appId, 'public', 'data', 'schedules');
+            const docRef = window.fs.doc(collectionRef, crypto.randomUUID());
             await window.fs.setDoc(docRef, scheduleData);
             alert("Schedule saved successfully!");
         } catch (error) {
@@ -1265,3 +1266,4 @@
 </script>
 </body>
 </html>
+
