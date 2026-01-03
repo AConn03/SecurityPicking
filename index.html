@@ -659,9 +659,9 @@
         '12/31': 'New Year\'s Eve',
     };
 
-    // --- Persistence Features ---
+    // --- Persistence Features (Using LocalStorage) ---
 
-    async function saveCurrentSchedule() {
+    function saveCurrentSchedule() {
         if (!raMatrix.length) {
             alert("Please upload RA data and generate a schedule first.");
             return;
@@ -669,12 +669,6 @@
 
         const scheduleName = prompt("Enter a name for this schedule:", `Schedule - ${new Date().toLocaleDateString()}`);
         if (!scheduleName) return;
-
-        const { db, appId, user } = window.firebaseData;
-        if (!user) {
-            alert("Waiting for authentication... try again in a moment.");
-            return;
-        }
 
         // Prepare schedule for serialization (convert Date objects to ISO strings)
         const serializableSchedule = {};
@@ -685,7 +679,8 @@
             };
         }
 
-        const scheduleData = {
+        const newScheduleData = {
+            id: Date.now(), // Unique ID based on timestamp
             name: scheduleName,
             raMatrix,
             raNames,
@@ -695,72 +690,68 @@
             availabilityMonths,
             startDate: document.getElementById('start-date').value,
             endDate: document.getElementById('end-date').value,
-            timestamp: window.fs.serverTimestamp()
+            timestamp: new Date().toISOString()
         };
 
+        // Get existing saves from localStorage
+        const existingSaves = JSON.parse(localStorage.getItem('saved_schedules') || '[]');
+        existingSaves.unshift(newScheduleData); // Add to the beginning of the list
+        
         try {
-            const collectionRef = window.fs.collection(db, 'artifacts', appId, 'public', 'data', 'schedules');
-            const docRef = window.fs.doc(collectionRef, crypto.randomUUID());
-            await window.fs.setDoc(docRef, scheduleData);
-            alert("Schedule saved successfully!");
-        } catch (error) {
-            console.error("Save failed:", error);
-            alert("Error saving schedule. See console for details.");
+            localStorage.setItem('saved_schedules', JSON.stringify(existingSaves));
+            alert("Schedule saved to browser memory!");
+        } catch (e) {
+            console.error(e);
+            alert("Storage full! Try deleting old schedules.");
         }
     }
 
-    async function openLoadModal() {
+    function openLoadModal() {
         const modal = document.getElementById('load-modal');
         const body = document.getElementById('load-modal-body');
         modal.style.display = 'flex';
-        body.innerHTML = '<p style="color:#718096; text-align:center;">Loading schedules...</p>';
+        body.innerHTML = '';
 
-        const { db, appId, user } = window.firebaseData;
-        if (!user) return;
-
-        try {
-            const q = window.fs.query(window.fs.collection(db, 'artifacts', appId, 'public', 'data', 'schedules'));
-            const querySnapshot = await window.fs.getDocs(q);
-            
-            if (querySnapshot.empty) {
-                body.innerHTML = '<p style="color:#718096; text-align:center;">No saved schedules found.</p>';
-                return;
-            }
-
-            // Client side sort by timestamp
-            const docs = [];
-            querySnapshot.forEach(doc => docs.push({ id: doc.id, ...doc.data() }));
-            docs.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
-
-            body.innerHTML = '';
-            docs.forEach(data => {
-                const dateStr = data.timestamp ? new Date(data.timestamp.seconds * 1000).toLocaleString() : 'No date';
-                const div = document.createElement('div');
-                div.className = 'saved-item';
-                div.innerHTML = `
-                    <div class="saved-item-info">
-                        <div class="saved-item-name">${data.name}</div>
-                        <div class="saved-item-date">${dateStr}</div>
-                    </div>
-                `;
-                div.onclick = () => loadSpecificSchedule(data);
-                body.appendChild(div);
-            });
-        } catch (error) {
-            console.error("Load list failed:", error);
-            body.innerHTML = '<p style="color:red; text-align:center;">Error loading schedules.</p>';
+        const savedSchedules = JSON.parse(localStorage.getItem('saved_schedules') || '[]');
+        
+        if (savedSchedules.length === 0) {
+            body.innerHTML = '<p style="color:#718096; text-align:center;">No saved schedules found in this browser.</p>';
+            return;
         }
+
+        savedSchedules.forEach((data, index) => {
+            const dateStr = new Date(data.timestamp).toLocaleString();
+            const div = document.createElement('div');
+            div.className = 'saved-item';
+            div.innerHTML = `
+                <div class="saved-item-info">
+                    <div class="saved-item-name">${data.name}</div>
+                    <div class="saved-item-date">${dateStr}</div>
+                </div>
+                <button onclick="deleteSchedule(${data.id}, event)" style="background:#e53e3e; padding: 5px 10px; font-size: 12px;">Delete</button>
+            `;
+            div.onclick = () => loadSpecificSchedule(data);
+            body.appendChild(div);
+        });
+    }
+
+    function deleteSchedule(id, event) {
+        event.stopPropagation(); // Don't trigger the load click
+        if(!confirm("Are you sure you want to delete this save?")) return;
+        
+        let savedSchedules = JSON.parse(localStorage.getItem('saved_schedules') || '[]');
+        savedSchedules = savedSchedules.filter(s => s.id !== id);
+        localStorage.setItem('saved_schedules', JSON.stringify(savedSchedules));
+        openLoadModal(); // Refresh list
     }
 
     function loadSpecificSchedule(data) {
-        // Update global variables
         raMatrix = data.raMatrix;
         raNames = data.raNames;
         unavailableDatesList = data.unavailableDatesList;
         shiftSize = data.shiftSize;
         availabilityMonths = data.availabilityMonths;
         
-        // Restore schedule (convert ISO strings back to Date objects)
         schedule = {};
         for (const [key, val] of Object.entries(data.schedule)) {
             schedule[key] = {
@@ -769,12 +760,10 @@
             };
         }
 
-        // Update inputs
         document.getElementById('start-date').value = data.startDate;
         document.getElementById('end-date').value = data.endDate;
         setShiftSize(shiftSize);
 
-        // Refresh UI
         const counts = calculateCurrentCounts();
         const pairwise = calculatePairwise(counts);
         displayCalendar();
@@ -789,13 +778,12 @@
         document.getElementById('load-modal').style.display = 'none';
     }
 
-    // --- Original Logic ---
+    // --- Original Logic (No Changes Required Below) ---
 
     function setShiftSize(size) {
         shiftSize = size;
         const btn1 = document.getElementById('shift-1-person');
         const btn2 = document.getElementById('shift-2-person');
-        
         if (size === 1) {
             btn1.classList.add('active');
             btn2.classList.remove('active');
@@ -803,15 +791,12 @@
             btn1.classList.remove('active');
             btn2.classList.add('active');
         }
-        
-        // Removed aggressive reset to allow loading without manual regeneration
     }
 
     function setSidebarSort(mode) {
         sidebarSortMode = mode;
         document.querySelectorAll('.sidebar-sort-controls button').forEach(btn => btn.classList.remove('active'));
         document.getElementById(`sort-${mode}-btn`).classList.add('active');
-        
         if (Object.keys(schedule).length > 0) {
             const counts = calculateCurrentCounts();
             const pairwise = calculatePairwise(counts);
@@ -1264,6 +1249,6 @@
         setShiftSize(2);
     });
 </script>
+
 </body>
 </html>
-
