@@ -648,9 +648,10 @@
                 <button id="choose-mode-btn" onclick="toggleChooseMode()">Enable Manual Edit Mode</button>
                 
                 <div style="display: flex; gap: 10px; width: 100%;">
-                    <button style="flex: 1; background-color: #38a169;" onclick="saveCurrentSchedule()">Save Schedule</button>
-                    <button style="flex: 1; background-color: #ed8936;" onclick="openLoadModal()">Load Saved</button>
+                    <button style="flex: 1; background-color: #38a169;" onclick="saveCurrentSchedule()">Save (Browser)</button>
+                    <button style="flex: 1; background-color: #ed8936;" onclick="openLoadModal()">Load / Import</button>
                 </div>
+                <button style="background-color: #4a5568;" onclick="exportSchedule()">Export JSON File</button>
             </div>
         </div>
 
@@ -700,9 +701,17 @@
 <div id="load-modal" class="modal">
     <div class="modal-content">
         <div class="modal-header">
-            <span>Load Saved Schedule</span>
+            <span>Load / Import Schedule</span>
             <button onclick="closeLoadModal()" style="background:none; color:#718096; font-size:1.5em; padding:0;">&times;</button>
         </div>
+        
+        <!-- File Import Section -->
+        <div style="margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid #e2e8f0;">
+            <label style="display: block; font-weight: bold; color: #4a5568; margin-bottom: 8px;">Import from File (.json):</label>
+            <input type="file" id="import-file-input" accept=".json" onchange="importSchedule(this)" style="margin-bottom: 0;">
+            <p style="font-size: 0.8em; color: #718096; margin-top: 5px; margin-bottom: 0;">Select a previously exported schedule file.</p>
+        </div>
+
         <div id="load-modal-body" class="modal-body">
             <!-- Items injected via JS -->
             <p style="color:#718096; text-align:center;">Loading schedules...</p>
@@ -767,28 +776,7 @@
         const scheduleName = prompt("Enter a name for this schedule:", `Schedule - ${new Date().toLocaleDateString()}`);
         if (!scheduleName) return;
 
-        // Prepare schedule for serialization (convert Date objects to ISO strings)
-        const serializableSchedule = {};
-        for (const [key, val] of Object.entries(schedule)) {
-            serializableSchedule[key] = {
-                ...val,
-                date: val.date.toISOString()
-            };
-        }
-
-        const newScheduleData = {
-            id: Date.now(), // Unique ID based on timestamp
-            name: scheduleName,
-            raMatrix,
-            raNames,
-            unavailableDatesList,
-            schedule: serializableSchedule,
-            shiftSize,
-            availabilityMonths,
-            startDate: document.getElementById('start-date').value,
-            endDate: document.getElementById('end-date').value,
-            timestamp: new Date().toISOString()
-        };
+        const newScheduleData = createScheduleDataObject(scheduleName);
 
         // Get existing saves from localStorage
         const existingSaves = JSON.parse(localStorage.getItem('saved_schedules') || '[]');
@@ -803,16 +791,88 @@
         }
     }
 
+    function exportSchedule() {
+        if (!raMatrix.length) {
+            alert("Please generate a schedule first.");
+            return;
+        }
+
+        const scheduleName = prompt("Enter a filename for export:", `RA_Schedule_${new Date().toISOString().split('T')[0]}`);
+        if (!scheduleName) return;
+
+        const data = createScheduleDataObject(scheduleName);
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data));
+        const downloadAnchorNode = document.createElement('a');
+        downloadAnchorNode.setAttribute("href", dataStr);
+        downloadAnchorNode.setAttribute("download", scheduleName + ".json");
+        document.body.appendChild(downloadAnchorNode); // required for firefox
+        downloadAnchorNode.click();
+        downloadAnchorNode.remove();
+    }
+
+    function createScheduleDataObject(name) {
+        // Prepare schedule for serialization (convert Date objects to ISO strings)
+        const serializableSchedule = {};
+        for (const [key, val] of Object.entries(schedule)) {
+            serializableSchedule[key] = {
+                ...val,
+                date: val.date.toISOString()
+            };
+        }
+
+        return {
+            id: Date.now(), // Unique ID based on timestamp
+            name: name,
+            raMatrix,
+            raNames,
+            unavailableDatesList,
+            schedule: serializableSchedule,
+            shiftSize,
+            availabilityMonths,
+            startDate: document.getElementById('start-date').value,
+            endDate: document.getElementById('end-date').value,
+            timestamp: new Date().toISOString()
+        };
+    }
+
+    function importSchedule(input) {
+        const file = input.files[0];
+        if (!file) return;
+        
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const data = JSON.parse(e.target.result);
+                // Basic validation
+                if (!data.raMatrix || !data.schedule || !data.raNames) {
+                    alert("Invalid schedule file format. Missing required data.");
+                    return;
+                }
+                loadSpecificSchedule(data);
+                input.value = ''; // Reset input so same file can be selected again if needed
+                alert("Schedule imported successfully!");
+            } catch (err) {
+                console.error(err);
+                alert("Error reading file. Please ensure it is a valid JSON file.");
+            }
+        };
+        reader.readAsText(file);
+    }
+
     function openLoadModal() {
         const modal = document.getElementById('load-modal');
         const body = document.getElementById('load-modal-body');
         modal.style.display = 'flex';
         body.innerHTML = '';
+        
+        // Reset the file input
+        const fileInput = document.getElementById('import-file-input');
+        if (fileInput) fileInput.value = '';
 
         const savedSchedules = JSON.parse(localStorage.getItem('saved_schedules') || '[]');
         
         if (savedSchedules.length === 0) {
-            body.innerHTML = '<p style="color:#718096; text-align:center;">No saved schedules found in this browser.</p>';
+            body.innerHTML = '<p style="color:#718096; text-align:center; padding: 10px;">No saved browser schedules found.</p>';
             return;
         }
 
