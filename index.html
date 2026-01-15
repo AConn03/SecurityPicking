@@ -561,7 +561,8 @@
         <div class="panel-box">
             <div class="panel-title">Actions</div>
             <div class="actions-group">
-                <button class="btn-generate" onclick="processFile()">Randomize Schedule</button>
+                <!-- Changed onclick to generateRandomSchedule -->
+                <button class="btn-generate" onclick="generateRandomSchedule()">Randomize Schedule</button>
                 <div class="toggle-row">
                     <input type="checkbox" id="show-holidays-toggle" checked>
                     <label for="show-holidays-toggle" style="font-weight: normal; color: #4a5568;">Show Holidays</label>
@@ -577,7 +578,8 @@
 
         <div class="panel-box">
             <div class="panel-title">Schedule Settings</div>
-            <input type="file" id="excel-file" accept=".xlsx, .xls, .csv" onchange="processFile()">
+            <!-- Changed onchange to handleFileUpload -->
+            <input type="file" id="excel-file" accept=".xlsx, .xls, .csv" onchange="handleFileUpload()">
             <div class="date-input-group">
                 <div>
                     <label for="start-date">Start Date</label>
@@ -778,7 +780,7 @@
         document.getElementById('load-modal').style.display = 'none';
     }
 
-    // --- Original Logic (No Changes Required Below) ---
+    // --- Core Logic ---
 
     function setShiftSize(size) {
         shiftSize = size;
@@ -1206,12 +1208,12 @@
         document.body.classList.add('sidebar-active');
     }
 
-    function processFile() {
+    // --- REFACTORED FILE PROCESSING & GENERATION ---
+
+    function handleFileUpload() {
         const file = document.getElementById('excel-file').files[0];
-        if (!file) {
-            alert('Please select an Excel file first.');
-            return;
-        }
+        if (!file) return; // Do nothing if cancelled or empty
+
         const reader = new FileReader();
         reader.onload = function(e) {
             const data = new Uint8Array(e.target.result);
@@ -1221,22 +1223,50 @@
             const excelData = XLSX.utils.sheet_to_json(worksheet, { header: 1, range: 1, raw: false }); 
             if (excelData.length === 0) return;
             try {
+                // 1. Reset UI
                 isRandomizeMode = false;
                 document.getElementById('randomize-mode-btn').textContent = "Enable Randomize Mode";
                 document.getElementById('randomize-mode-btn').classList.remove('active');
+
+                // 2. Build Matrix (This detects season and SETS default dates)
                 buildMatrix(excelData);
-                const selectionCounts = createCalendar();
-                if (Object.keys(selectionCounts).length === 0 && raNames.length > 0) return; 
-                const pairwiseMatrix = calculatePairwise(selectionCounts);
-                displayCalendar();
-                displayMatrix();
-                displayShiftTotals(selectionCounts, pairwiseMatrix);
-                showContent('calendar-view', document.querySelector('.tab-btn.active'));
+
+                // 3. Generate initial schedule with those default dates
+                generateRandomSchedule();
             } catch (error) {
                 console.error("Error processing data:", error);
             }
         };
         reader.readAsArrayBuffer(file);
+    }
+
+    function generateRandomSchedule() {
+        // Validation: Ensure matrix exists
+        if (raMatrix.length === 0) {
+            alert('Please upload a file first to load RA data.');
+            return;
+        }
+
+        // Reset UI
+        isRandomizeMode = false;
+        document.getElementById('randomize-mode-btn').textContent = "Enable Randomize Mode";
+        document.getElementById('randomize-mode-btn').classList.remove('active');
+
+        // Create Calendar (Uses the CURRENT values in date inputs, does NOT reset them)
+        const selectionCounts = createCalendar();
+        
+        // Validation: Ensure schedule was created
+        if (Object.keys(selectionCounts).length === 0 && raNames.length > 0) return; 
+
+        const pairwiseMatrix = calculatePairwise(selectionCounts);
+        
+        // Update Displays
+        displayCalendar();
+        displayMatrix();
+        displayShiftTotals(selectionCounts, pairwiseMatrix);
+        
+        // Switch to Calendar Tab
+        showContent('calendar-view', document.querySelector('.tab-btn:first-child'));
     }
     
     document.addEventListener('DOMContentLoaded', () => {
