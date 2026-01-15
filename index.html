@@ -226,6 +226,18 @@
             font-weight: bold;
             border: 2px solid #b794f4;
         }
+
+        #choose-mode-btn {
+            background-color: #38b2ac; /* Teal */
+            width: 100%;
+            margin-top: 10px;
+        }
+        #choose-mode-btn.active {
+            background-color: #285e61;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
+            font-weight: bold;
+            border: 2px solid #81e6d9;
+        }
         
         .tabs-bar {
             display: flex;
@@ -502,6 +514,71 @@
             font-size: 0.8em;
             color: #718096;
         }
+
+        /* Edit Modal Specifics */
+        .edit-slot-btn {
+            display: block;
+            width: 100%;
+            padding: 15px;
+            margin-bottom: 10px;
+            background: #edf2f7;
+            border: 1px solid #cbd5e0;
+            border-radius: 6px;
+            text-align: left;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .edit-slot-btn:hover {
+            background: #e2e8f0;
+            border-color: #4299e1;
+        }
+        .edit-slot-label {
+            font-weight: bold;
+            color: #2d3748;
+        }
+        .edit-slot-sub {
+            font-size: 0.85em;
+            color: #718096;
+        }
+        .candidate-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .candidate-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 15px;
+            border-bottom: 1px solid #edf2f7;
+            cursor: pointer;
+            transition: background 0.1s;
+        }
+        .candidate-item:hover {
+            background-color: #ebf8ff;
+        }
+        .candidate-name {
+            font-weight: 600;
+            color: #2c5282;
+        }
+        .candidate-stats {
+            font-size: 0.9em;
+            color: #718096;
+            background: #edf2f7;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+        .back-btn {
+            background: none;
+            border: none;
+            color: #4299e1;
+            cursor: pointer;
+            font-size: 0.9em;
+            margin-bottom: 10px;
+            text-decoration: underline;
+            padding: 0;
+        }
         
         @media (min-width: 1201px) {
             body.sidebar-active .container {
@@ -568,6 +645,7 @@
                     <label for="show-holidays-toggle" style="font-weight: normal; color: #4a5568;">Show Holidays</label>
                 </div>
                 <button id="randomize-mode-btn" onclick="toggleRandomizeMode()">Enable Randomize Mode</button>
+                <button id="choose-mode-btn" onclick="toggleChooseMode()">Enable Manual Edit Mode</button>
                 
                 <div style="display: flex; gap: 10px; width: 100%;">
                     <button style="flex: 1; background-color: #38a169;" onclick="saveCurrentSchedule()">Save Schedule</button>
@@ -618,19 +696,18 @@
     </div>
 </div>
 
-<!-- Modal for Loading Schedules -->
-<div id="load-modal" class="modal">
+<!-- Modal for Manual Editing -->
+<div id="edit-modal" class="modal">
     <div class="modal-content">
         <div class="modal-header">
-            <span>Load Saved Schedule</span>
-            <button onclick="closeLoadModal()" style="background:none; color:#718096; font-size:1.5em; padding:0;">&times;</button>
+            <span id="edit-modal-date">Edit Shift</span>
+            <button onclick="closeEditModal()" style="background:none; color:#718096; font-size:1.5em; padding:0;">&times;</button>
         </div>
-        <div id="load-modal-body" class="modal-body">
-            <!-- Items injected via JS -->
-            <p style="color:#718096; text-align:center;">Loading schedules...</p>
+        <div id="edit-modal-body" class="modal-body">
+            <!-- Dynamic content -->
         </div>
         <div style="text-align: right;">
-            <button onclick="closeLoadModal()" style="background-color:#e2e8f0; color:#4a5568;">Cancel</button>
+            <button onclick="closeEditModal()" style="background-color:#e2e8f0; color:#4a5568;">Done</button>
         </div>
     </div>
 </div>
@@ -642,6 +719,7 @@
     let schedule = {}; 
     let shiftSize = 2; 
     let isRandomizeMode = false;
+    let isChooseMode = false;
     let sidebarSortMode = 'name';
 
     const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -811,6 +889,10 @@
             alert("Please generate a schedule first.");
             return;
         }
+        
+        // Disable Choose Mode if active
+        if (isChooseMode) toggleChooseMode();
+
         isRandomizeMode = !isRandomizeMode;
         const btn = document.getElementById('randomize-mode-btn');
         const calendarContainer = document.getElementById('calendar-output');
@@ -823,6 +905,152 @@
             btn.classList.remove('active');
             calendarContainer.classList.remove('randomize-active');
         }
+    }
+
+    function toggleChooseMode() {
+        if (Object.keys(schedule).length === 0) {
+            alert("Please generate a schedule first.");
+            return;
+        }
+        
+        // Disable Randomize Mode if active
+        if (isRandomizeMode) toggleRandomizeMode();
+
+        isChooseMode = !isChooseMode;
+        const btn = document.getElementById('choose-mode-btn');
+        const calendarContainer = document.getElementById('calendar-output');
+        
+        if (isChooseMode) {
+            btn.textContent = "Disable Manual Edit Mode";
+            btn.classList.add('active');
+            // Reuse the randomize-active class for pointer events/hover effects since they are similar
+            calendarContainer.classList.add('randomize-active'); 
+        } else {
+            btn.textContent = "Enable Manual Edit Mode";
+            btn.classList.remove('active');
+            calendarContainer.classList.remove('randomize-active');
+        }
+    }
+
+    function handleDayClick(dateKey) {
+        if (isRandomizeMode) {
+            randomizeDay(dateKey);
+        } else if (isChooseMode) {
+            openEditModal(dateKey);
+        }
+    }
+
+    // --- Manual Edit Modal Logic ---
+
+    function openEditModal(dateKey) {
+        const modal = document.getElementById('edit-modal');
+        const body = document.getElementById('edit-modal-body');
+        const title = document.getElementById('edit-modal-date');
+        
+        const dayData = schedule[dateKey];
+        if (!dayData) return;
+
+        modal.style.display = 'flex';
+        title.textContent = `Edit: ${dayData.monthName} ${dayData.date.getDate()}`;
+        
+        renderEditSlots(dateKey);
+    }
+
+    function closeEditModal() {
+        document.getElementById('edit-modal').style.display = 'none';
+    }
+
+    function renderEditSlots(dateKey) {
+        const body = document.getElementById('edit-modal-body');
+        const dayData = schedule[dateKey];
+        const assigned = dayData.assigned;
+        
+        let html = '<p style="margin-top:0; color:#718096; font-size:0.9em;">Select a slot to change the RA:</p>';
+        
+        assigned.forEach((person, index) => {
+            const displayName = (person && person !== 'EMPTY') ? person : (person === 'EMPTY' ? 'Empty Slot' : 'Unassigned');
+            const styleClass = (person && person !== 'EMPTY') ? 'color: #2c5282;' : 'color: #e53e3e;';
+            
+            html += `
+                <button class="edit-slot-btn" onclick="showCandidatesForSlot('${dateKey}', ${index})">
+                    <div class="edit-slot-label" style="${styleClass}">${displayName}</div>
+                    <div class="edit-slot-sub">Slot ${index + 1}</div>
+                </button>
+            `;
+        });
+
+        body.innerHTML = html;
+    }
+
+    function showCandidatesForSlot(dateKey, slotIndex) {
+        const body = document.getElementById('edit-modal-body');
+        const dateObj = schedule[dateKey].date;
+        
+        // Get all available people
+        const availableRAs = getAvailableRAsForDate(dateObj);
+        
+        // Get current counts to sort by lowest
+        const currentCounts = calculateCurrentCounts();
+        
+        // Current people assigned to THIS day (to mark them or exclude them if needed)
+        // We generally allow swapping, so we show everyone available who isn't ALREADY assigned to another slot on this day
+        const currentAssigned = schedule[dateKey].assigned;
+        
+        // Filter: You can assign anyone available, EXCEPT those already working this specific shift (unless it's the slot we are editing)
+        const candidates = availableRAs.filter(name => {
+            // Check if name is assigned to a DIFFERENT slot on this day
+            const assignedIndex = currentAssigned.indexOf(name);
+            return assignedIndex === -1 || assignedIndex === slotIndex;
+        });
+
+        // Sort by Total Shifts (Lowest first)
+        candidates.sort((a, b) => (currentCounts[a] || 0) - (currentCounts[b] || 0));
+
+        let html = `
+            <button class="back-btn" onclick="renderEditSlots('${dateKey}')">← Back to slots</button>
+            <p style="margin-top:0; margin-bottom:10px; font-weight:bold;">Select Replacement:</p>
+            <ul class="candidate-list">
+        `;
+
+        // Add "Empty" option
+        html += `
+            <li class="candidate-item" onclick="updateSlot('${dateKey}', ${slotIndex}, 'EMPTY')">
+                <span class="candidate-name" style="color: #e53e3e;">Clear Slot (Empty)</span>
+            </li>
+        `;
+
+        candidates.forEach(name => {
+            const count = currentCounts[name] || 0;
+            html += `
+                <li class="candidate-item" onclick="updateSlot('${dateKey}', ${slotIndex}, '${name}')">
+                    <span class="candidate-name">${name}</span>
+                    <span class="candidate-stats">${count} shifts</span>
+                </li>
+            `;
+        });
+
+        if (candidates.length === 0) {
+            html += '<li class="candidate-item" style="cursor:default; color:#718096;">No available RAs found.</li>';
+        }
+
+        html += '</ul>';
+        body.innerHTML = html;
+    }
+
+    function updateSlot(dateKey, slotIndex, newName) {
+        schedule[dateKey].assigned[slotIndex] = newName;
+        
+        // Update global stats
+        const counts = calculateCurrentCounts();
+        const pairwise = calculatePairwise(counts);
+        
+        // Refresh UI
+        displayCalendar();
+        displayMatrix();
+        displayShiftTotals(counts, pairwise);
+        
+        // Return to slots view in modal
+        renderEditSlots(dateKey);
     }
 
     function shuffleArray(array) {
@@ -975,24 +1203,46 @@
         if (!isRandomizeMode) return;
         const daySchedule = schedule[dateKey];
         if (!daySchedule) return;
+
+        // 1. Calculate counts ignoring the current shift to find "true" load
         const currentCounts = calculateCurrentCounts();
-        daySchedule.assigned.forEach(person => {
-            if (person && person !== 'EMPTY') currentCounts[person] = Math.max(0, currentCounts[person] - 1);
+        const currentAssigned = daySchedule.assigned.filter(p => p && p !== 'EMPTY');
+        currentAssigned.forEach(person => {
+            if (currentCounts[person] !== undefined) currentCounts[person] = Math.max(0, currentCounts[person] - 1);
         });
+
+        // 2. Get candidates
         let availablePeople = getAvailableRAsForDate(daySchedule.date);
+        
+        // Filter out people currently on this shift to prioritize new people
+        let freshCandidates = availablePeople.filter(p => !currentAssigned.includes(p));
+        
         let assignedPeople = [];
         const spotsNeeded = shiftSize;
-        if (availablePeople.length >= spotsNeeded) {
-            shuffleArray(availablePeople);
-            availablePeople.sort((a, b) => currentCounts[a] - currentCounts[b]);
-            assignedPeople = availablePeople.slice(0, spotsNeeded);
+
+        // 3. Selection Logic
+        if (freshCandidates.length >= spotsNeeded) {
+            // OPTION A: Enough fresh people to completely swap out the current team
+            shuffleArray(freshCandidates);
+            freshCandidates.sort((a, b) => currentCounts[a] - currentCounts[b]);
+            assignedPeople = freshCandidates.slice(0, spotsNeeded);
+        } else if (availablePeople.length >= spotsNeeded) {
+             // OPTION B: Not enough fresh people for a full swap, use anyone available (sorted by count)
+             shuffleArray(availablePeople);
+             availablePeople.sort((a, b) => currentCounts[a] - currentCounts[b]);
+             assignedPeople = availablePeople.slice(0, spotsNeeded);
         } else if (availablePeople.length > 0) {
+            // OPTION C: Partial fill (total available < spots needed)
             assignedPeople = availablePeople;
             while (assignedPeople.length < spotsNeeded) assignedPeople.push(''); 
         } else {
+            // OPTION D: No one available
             assignedPeople = Array(spotsNeeded).fill('EMPTY');
         }
+
         schedule[dateKey].assigned = assignedPeople;
+        
+        // 4. Update UI
         const updatedCounts = calculateCurrentCounts();
         const pairwiseMatrix = calculatePairwise(updatedCounts);
         displayCalendar();
@@ -1132,7 +1382,8 @@
                 if (showHolidays && holidays[holidayKey]) holidayContent = `<span class="holiday-label">${holidays[holidayKey]}</span>`;
                 if (item) {
                     const dateKey = item.date.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
-                    clickAttribute = `onclick="randomizeDay('${dateKey}')"`;
+                    // Updated to use generic handler
+                    clickAttribute = `onclick="handleDayClick('${dateKey}')"`;
                     item.assigned.forEach(person => {
                         const isFiller = person === '' || person === 'EMPTY'; 
                         const display = person === 'EMPTY' ? 'EMPTY' : (person === '' ? '— (Partial)' : person);
@@ -1225,8 +1476,11 @@
             try {
                 // 1. Reset UI
                 isRandomizeMode = false;
+                isChooseMode = false;
                 document.getElementById('randomize-mode-btn').textContent = "Enable Randomize Mode";
                 document.getElementById('randomize-mode-btn').classList.remove('active');
+                document.getElementById('choose-mode-btn').textContent = "Enable Manual Edit Mode";
+                document.getElementById('choose-mode-btn').classList.remove('active');
 
                 // 2. Build Matrix (This detects season and SETS default dates)
                 buildMatrix(excelData);
@@ -1249,8 +1503,11 @@
 
         // Reset UI
         isRandomizeMode = false;
+        isChooseMode = false;
         document.getElementById('randomize-mode-btn').textContent = "Enable Randomize Mode";
         document.getElementById('randomize-mode-btn').classList.remove('active');
+        document.getElementById('choose-mode-btn').textContent = "Enable Manual Edit Mode";
+        document.getElementById('choose-mode-btn').classList.remove('active');
 
         // Create Calendar (Uses the CURRENT values in date inputs, does NOT reset them)
         const selectionCounts = createCalendar();
