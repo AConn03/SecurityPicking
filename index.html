@@ -696,6 +696,23 @@
     </div>
 </div>
 
+<!-- Modal for Loading Schedules -->
+<div id="load-modal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <span>Load Saved Schedule</span>
+            <button onclick="closeLoadModal()" style="background:none; color:#718096; font-size:1.5em; padding:0;">&times;</button>
+        </div>
+        <div id="load-modal-body" class="modal-body">
+            <!-- Items injected via JS -->
+            <p style="color:#718096; text-align:center;">Loading schedules...</p>
+        </div>
+        <div style="text-align: right;">
+            <button onclick="closeLoadModal()" style="background-color:#e2e8f0; color:#4a5568;">Cancel</button>
+        </div>
+    </div>
+</div>
+
 <!-- Modal for Manual Editing -->
 <div id="edit-modal" class="modal">
     <div class="modal-content">
