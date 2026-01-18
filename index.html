@@ -816,7 +816,7 @@
         for (const [key, val] of Object.entries(schedule)) {
             serializableSchedule[key] = {
                 ...val,
-                date: val.date.toISOString()
+                date: toLocalISOString(val.date) // Use local ISO
             };
         }
 
@@ -911,9 +911,13 @@
         
         schedule = {};
         for (const [key, val] of Object.entries(data.schedule)) {
+            // Reconstruct Date objects from the saved strings
+            // If the string is YYYY-MM-DD (from our new local ISO logic), new Date(str + 'T00:00:00') keeps it local
+            const dateStr = val.date.includes('T') ? val.date.split('T')[0] : val.date;
+            
             schedule[key] = {
                 ...val,
-                date: new Date(val.date)
+                date: new Date(dateStr + 'T00:00:00') 
             };
         }
 
@@ -936,6 +940,14 @@
     }
 
     // --- Core Logic ---
+
+    // HELPER: Convert Date to "YYYY-MM-DD" in LOCAL TIME (ignores timezone)
+    function toLocalISOString(date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
 
     function setShiftSize(size) {
         shiftSize = size;
@@ -1137,37 +1149,68 @@
         }
     }
 
+    // Updated Parsing Logic to handle years correctly
     function parseUnavailableDates(datesStr) {
         if (!datesStr) return [];
         const dates = [];
         const parts = String(datesStr).split(/[,;\t]|\s{2,}/).map(p => p.trim()).filter(p => p.length > 0);
-        const year = new Date(document.getElementById('start-date').value).getFullYear();
+        
+        // Get Context from Start Date
+        const startDateVal = document.getElementById('start-date').value;
+        const startDateObj = new Date(startDateVal + 'T00:00:00');
+        const startYear = startDateObj.getFullYear();
+        const startMonth = startDateObj.getMonth() + 1; // 1-12
+
+        // Helper to guess year based on month relative to start date
+        // e.g. If schedule starts in Sept, and date is Jan, assume Next Year.
+        const getYearForMonth = (m) => {
+            if (m < startMonth) return startYear + 1;
+            return startYear;
+        };
+
         for (const part of parts) {
             if (part.includes('-')) {
+                // Range Logic
                 try {
                     let [startStr, endStr] = part.split('-');
                     let startMatch = startStr.match(/(\d+)\D+(\d+)/);
                     let endMatch = endStr.match(/(\d+)\D+(\d+)/);
                     if (startMatch && endMatch) {
-                        let startDate = new Date(year, Number(startMatch[1]) - 1, Number(startMatch[2]));
-                        let endDate = new Date(year, Number(endMatch[1]) - 1, Number(endMatch[2]));
+                        const m1 = Number(startMatch[1]);
+                        const d1 = Number(startMatch[2]);
+                        const m2 = Number(endMatch[1]);
+                        const d2 = Number(endMatch[2]);
+
+                        const y1 = getYearForMonth(m1);
+                        // For end date, if month is smaller than start month of range (e.g. Dec 28 - Jan 4), add 1 year to start year
+                        // But simpler: just use the global logic. 
+                        // If Range is Dec 2025 to Jan 2026. m1=12 (>=9, yr 2025). m2=1 (<9, yr 2026). Correct.
+                        const y2 = getYearForMonth(m2);
+
+                        let startDate = new Date(y1, m1 - 1, d1);
+                        let endDate = new Date(y2, m2 - 1, d2);
+                        
                         let currentDate = new Date(startDate);
                         while (currentDate <= endDate) {
-                            dates.push(currentDate.toISOString().split('T')[0]);
+                            dates.push(toLocalISOString(currentDate));
                             currentDate.setDate(currentDate.getDate() + 1);
                         }
                     }
-                } catch (e) {}
+                } catch (e) { console.log('Range parse error', e); }
             } else {
+                // Single Date Logic
                 try {
                     let dateMatch = part.match(/(\d+)\D+(\d+)/);
                     if (dateMatch) {
                         let month = Number(dateMatch[1]);
                         let day = Number(dateMatch[2]);
+                        
+                        const year = getYearForMonth(month);
+                        
                         let singleDate = new Date(year, month - 1, day);
-                        dates.push(singleDate.toISOString().split('T')[0]);
+                        dates.push(toLocalISOString(singleDate));
                     }
-                } catch (e) {}
+                } catch (e) { console.log('Date parse error', e); }
             }
         }
         return dates;
@@ -1197,6 +1240,8 @@
         const currentYear = new Date().getFullYear();
         const startInput = document.getElementById('start-date');
         const endInput = document.getElementById('end-date');
+        
+        // Only auto-set if values haven't been manually touched (simple heuristic, or just overwrite)
         if (springScore > fallScore) {
             availabilityMonths = ['January', 'February', 'March', 'April', 'May'];
             startInput.value = `${currentYear}-01-01`;
@@ -1214,7 +1259,10 @@
         const monthsColumnIndex = 2; 
         const shiftsColumnIndex = 3; 
         const unavailableColumnIndex = 5; 
+        
+        // This sets the dates in the DOM, which parseUnavailableDates reads immediately after
         detectSeasonAndUpdateSettings(data);
+        
         const filteredData = data.filter(row => row[nameColumnIndex]);
         raNames = filteredData.map(row => row[nameColumnIndex]);
         raMatrix = [];
@@ -1230,8 +1278,11 @@
             const binaryMonths = availabilityMonths.map(month => monthsStr.includes(month.toUpperCase()) ? 1 : 0);
             row.push(...binaryMonths);
             row.push(rowData[shiftsColumnIndex] || 0);
+            
+            // Now parses using the dates set in DOM by detectSeason...
             const unavailableDates = parseUnavailableDates(rowData[unavailableColumnIndex]);
             unavailableDatesList.push(unavailableDates);
+            
             const displayDates = unavailableDates.map(iso => {
                 const parts = iso.split('-');
                 return `${parts[1]}/${parts[2]}`;
@@ -1245,7 +1296,10 @@
         const dayIndex = date.getDay(); 
         const monthName = date.toLocaleString('en-US', { month: 'long' });
         const monthIndex = availabilityMonths.indexOf(monthName); 
-        const dateISO = date.toISOString().split('T')[0];
+        
+        // FIXED: Use local ISO string to avoid timezone offset mismatches
+        const dateISO = toLocalISOString(date);
+        
         let availablePeople = [];
         for (let i = 0; i < raNames.length; i++) {
             const raRow = raMatrix[i];
@@ -1254,6 +1308,7 @@
             const isAvailableMonth = monthIndex !== -1 && raRow[8 + monthIndex] === 1; 
             const isMonthOutsideExcelScope = monthIndex === -1; 
             const isUnavailableDate = unavailableDatesList[i].includes(dateISO);
+            
             if (isAvailableDay && (isAvailableMonth || isMonthOutsideExcelScope) && !isUnavailableDate) {
                 availablePeople.push(name);
             }
@@ -1336,8 +1391,11 @@
             alert('Please select both a Start Date and an End Date.');
             return {};
         }
+        
+        // These create Local Time Dates at 00:00:00
         const startDate = new Date(startDateInput + 'T00:00:00');
         const endDate = new Date(endDateInput + 'T00:00:00');
+        
         if (startDate > endDate) {
             alert('Start Date must be before End Date.');
             return {};
