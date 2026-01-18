@@ -103,6 +103,7 @@
             box-shadow: 0 2px 4px rgba(0,0,0,0.05);
             height: 100%;
             box-sizing: border-box;
+            position: relative;
         }
         
         .panel-title {
@@ -188,6 +189,22 @@
         }
         .btn-generate:hover {
             background-color: #2c5282;
+        }
+        
+        .settings-btn {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: none;
+            border: none;
+            color: #718096;
+            padding: 5px;
+            font-size: 1.2em;
+            cursor: pointer;
+        }
+        .settings-btn:hover {
+            background-color: #edf2f7;
+            color: #2c5282;
         }
 
         .shift-toggle-group {
@@ -474,6 +491,10 @@
             width: 90%;
             max-width: 500px;
             box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+            max-height: 85vh;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
         }
         .modal-header {
             font-weight: bold;
@@ -487,8 +508,7 @@
             align-items: center;
         }
         .modal-body {
-            max-height: 300px;
-            overflow-y: auto;
+            flex: 1;
             margin-bottom: 20px;
         }
         .saved-item {
@@ -513,6 +533,38 @@
         .saved-item-date {
             font-size: 0.8em;
             color: #718096;
+        }
+
+        /* Settings Modal Specifics */
+        .settings-form-group {
+            margin-bottom: 15px;
+        }
+        .settings-form-group label {
+            display: block;
+            font-weight: bold;
+            color: #4a5568;
+            margin-bottom: 5px;
+            font-size: 0.9em;
+        }
+        .settings-form-group textarea, 
+        .settings-form-group input[type="text"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #cbd5e0;
+            border-radius: 6px;
+            font-size: 14px;
+            box-sizing: border-box;
+            font-family: monospace;
+        }
+        .settings-form-group textarea {
+            resize: vertical;
+            min-height: 60px;
+        }
+        .settings-help {
+            font-size: 0.8em;
+            color: #718096;
+            margin-top: 2px;
+            font-style: italic;
         }
 
         /* Edit Modal Specifics */
@@ -656,6 +708,7 @@
         </div>
 
         <div class="panel-box">
+            <button class="settings-btn" onclick="openSettingsModal()" title="Column Header Settings">⚙️</button>
             <div class="panel-title">Schedule Settings</div>
             <!-- Changed onchange to handleFileUpload -->
             <input type="file" id="excel-file" accept=".xlsx, .xls, .csv" onchange="handleFileUpload()">
@@ -738,6 +791,45 @@
     </div>
 </div>
 
+<!-- Modal for Settings -->
+<div id="settings-modal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <span>Excel Column Header Settings</span>
+            <button onclick="closeSettingsModal()" style="background:none; color:#718096; font-size:1.5em; padding:0;">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p style="color:#4a5568; margin-top:0;">Paste the exact headers from your Excel file to map columns correctly.</p>
+            
+            <div class="settings-form-group">
+                <label for="setting-header-name">Name Header</label>
+                <textarea id="setting-header-name"></textarea>
+            </div>
+            <div class="settings-form-group">
+                <label for="setting-header-days">Days of Week Header</label>
+                <textarea id="setting-header-days"></textarea>
+            </div>
+            <div class="settings-form-group">
+                <label for="setting-header-months">Months Header</label>
+                <textarea id="setting-header-months"></textarea>
+            </div>
+            <div class="settings-form-group">
+                <label for="setting-header-shifts">Shifts/Week Header</label>
+                <textarea id="setting-header-shifts"></textarea>
+            </div>
+            <div class="settings-form-group">
+                <label for="setting-header-unavailable">Unavailable Dates Header</label>
+                <textarea id="setting-header-unavailable"></textarea>
+                <div class="settings-help">The long instruction text in the column header.</div>
+            </div>
+        </div>
+        <div style="text-align: right; display: flex; justify-content: space-between;">
+            <button onclick="resetSettingsDefaults()" style="background-color:#e53e3e; color:white;">Reset Defaults</button>
+            <button onclick="saveSettings()" style="background-color:#4299e1; color:white;">Save Settings</button>
+        </div>
+    </div>
+</div>
+
 <script>
     let raMatrix = [];
     let raNames = [];
@@ -747,6 +839,55 @@
     let isRandomizeMode = false;
     let isChooseMode = false;
     let sidebarSortMode = 'name';
+
+    // --- Settings & Configuration ---
+
+    const defaultHeaders = {
+        name: "First and Last Name",
+        days: "Days of the week you do you want to work security",
+        months: "What months do you want securities in?",
+        shifts: "How many securities do you want per week? (Please write a number - if no limit put 0)",
+        unavailable: "Please do not add words read formatting below. Please list ONLY dates you cannot work. For individual days - m/d, m/d     For a range - m/d-m/d,     If none, leave blank."
+    };
+
+    let columnHeaders = JSON.parse(localStorage.getItem('ra_scheduler_headers')) || {...defaultHeaders};
+
+    function openSettingsModal() {
+        document.getElementById('setting-header-name').value = columnHeaders.name;
+        document.getElementById('setting-header-days').value = columnHeaders.days;
+        document.getElementById('setting-header-months').value = columnHeaders.months;
+        document.getElementById('setting-header-shifts').value = columnHeaders.shifts;
+        document.getElementById('setting-header-unavailable').value = columnHeaders.unavailable;
+        document.getElementById('settings-modal').style.display = 'flex';
+    }
+
+    function closeSettingsModal() {
+        document.getElementById('settings-modal').style.display = 'none';
+    }
+
+    function saveSettings() {
+        columnHeaders.name = document.getElementById('setting-header-name').value.trim();
+        columnHeaders.days = document.getElementById('setting-header-days').value.trim();
+        columnHeaders.months = document.getElementById('setting-header-months').value.trim();
+        columnHeaders.shifts = document.getElementById('setting-header-shifts').value.trim();
+        columnHeaders.unavailable = document.getElementById('setting-header-unavailable').value.trim();
+        
+        localStorage.setItem('ra_scheduler_headers', JSON.stringify(columnHeaders));
+        alert("Settings saved! Please re-upload your Excel file to apply changes.");
+        closeSettingsModal();
+    }
+
+    function resetSettingsDefaults() {
+        if(!confirm("Reset headers to system defaults?")) return;
+        columnHeaders = {...defaultHeaders};
+        
+        document.getElementById('setting-header-name').value = columnHeaders.name;
+        document.getElementById('setting-header-days').value = columnHeaders.days;
+        document.getElementById('setting-header-months').value = columnHeaders.months;
+        document.getElementById('setting-header-shifts').value = columnHeaders.shifts;
+        document.getElementById('setting-header-unavailable').value = columnHeaders.unavailable;
+    }
+
 
     const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const fullMonths = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -1227,8 +1368,8 @@
         }
     }
 
-    function detectSeasonAndUpdateSettings(data) {
-        const monthsColumnIndex = 2;
+    function detectSeasonAndUpdateSettings(data, indices) {
+        const monthsColumnIndex = indices.months;
         let allMonthText = "";
         data.forEach(row => {
             if (row[monthsColumnIndex]) allMonthText += " " + String(row[monthsColumnIndex]).toUpperCase();
@@ -1253,15 +1394,16 @@
         }
     }
 
-    function buildMatrix(data) {
-        const nameColumnIndex = 0; 
-        const daysColumnIndex = 1; 
-        const monthsColumnIndex = 2; 
-        const shiftsColumnIndex = 3; 
-        const unavailableColumnIndex = 5; 
+    function buildMatrix(data, indices) {
+        // Indices are passed dynamically based on header settings
+        const nameColumnIndex = indices.name; 
+        const daysColumnIndex = indices.days; 
+        const monthsColumnIndex = indices.months; 
+        const shiftsColumnIndex = indices.shifts; 
+        const unavailableColumnIndex = indices.unavailable; 
         
         // This sets the dates in the DOM, which parseUnavailableDates reads immediately after
-        detectSeasonAndUpdateSettings(data);
+        detectSeasonAndUpdateSettings(data, indices);
         
         const filteredData = data.filter(row => row[nameColumnIndex]);
         raNames = filteredData.map(row => row[nameColumnIndex]);
@@ -1598,7 +1740,7 @@
 
     function handleFileUpload() {
         const file = document.getElementById('excel-file').files[0];
-        if (!file) return; // Do nothing if cancelled or empty
+        if (!file) return; 
 
         const reader = new FileReader();
         reader.onload = function(e) {
@@ -1606,8 +1748,37 @@
             const workbook = XLSX.read(data, { type: 'array' });
             const sheetName = workbook.SheetNames[0]; 
             const worksheet = workbook.Sheets[sheetName];
-            const excelData = XLSX.utils.sheet_to_json(worksheet, { header: 1, range: 1, raw: false }); 
-            if (excelData.length === 0) return;
+            
+            // Get all data including headers (header: 1 returns array of arrays)
+            const allRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false });
+            
+            if (allRows.length === 0) return;
+
+            // 1. Find Header Row and Indices
+            // We assume headers are in the first row [0].
+            const headerRow = allRows[0].map(h => (h || '').toString().trim());
+            
+            const indices = {
+                name: headerRow.indexOf(columnHeaders.name),
+                days: headerRow.indexOf(columnHeaders.days),
+                months: headerRow.indexOf(columnHeaders.months),
+                shifts: headerRow.indexOf(columnHeaders.shifts),
+                unavailable: headerRow.indexOf(columnHeaders.unavailable)
+            };
+
+            // Validation: Check if columns were found
+            const missing = [];
+            if (indices.name === -1) missing.push("Name");
+            if (indices.days === -1) missing.push("Days");
+            
+            if (missing.length > 0) {
+                alert(`Error: Could not find columns: ${missing.join(', ')}. \nPlease check the Settings ⚙️ icon to match your Excel headers exactly.`);
+                return;
+            }
+
+            // Slice off header row
+            const dataRows = allRows.slice(1);
+
             try {
                 // 1. Reset UI
                 isRandomizeMode = false;
@@ -1617,13 +1788,14 @@
                 document.getElementById('choose-mode-btn').textContent = "Enable Manual Edit Mode";
                 document.getElementById('choose-mode-btn').classList.remove('active');
 
-                // 2. Build Matrix (This detects season and SETS default dates)
-                buildMatrix(excelData);
+                // 2. Build Matrix (Passing mapped indices)
+                buildMatrix(dataRows, indices);
 
-                // 3. Generate initial schedule with those default dates
+                // 3. Generate initial schedule
                 generateRandomSchedule();
             } catch (error) {
                 console.error("Error processing data:", error);
+                alert("An error occurred while processing the file. Check console for details.");
             }
         };
         reader.readAsArrayBuffer(file);
