@@ -166,6 +166,13 @@
             background: white;
         }
 
+        /* Status Indicator Styles */
+        #file-loaded-indicator {
+            width: 100%;
+            box-sizing: border-box;
+            margin-bottom: 15px;
+        }
+
         button { 
             padding: 10px 16px; 
             background-color: #4299e1; 
@@ -710,16 +717,23 @@
         <div class="panel-box">
             <button class="settings-btn" onclick="openSettingsModal()" title="Column Header Settings">⚙️</button>
             <div class="panel-title">Schedule Settings</div>
-            <!-- Changed onchange to handleFileUpload -->
-            <input type="file" id="excel-file" accept=".xlsx, .xls, .csv" onchange="handleFileUpload()">
+            
+            <div id="file-upload-container">
+                <input type="file" id="excel-file" accept=".xlsx, .xls, .csv" onchange="handleFileUpload()">
+                <div id="file-loaded-indicator" style="display:none; align-items:center; justify-content:space-between; background-color:#e6fffa; padding:10px; border-radius:6px; border:1px solid #38b2ac; margin-bottom:15px;">
+                    <span style="color:#234e52; font-weight:bold; font-size: 0.9em;">✓ Data Loaded </span>
+                    <button onclick="clearWorkingState()" style="background-color:#e53e3e; padding:5px 12px; font-size:12px; margin:0; width:auto; border-radius:4px;">Remove File</button>
+                </div>
+            </div>
+
             <div class="date-input-group">
                 <div>
                     <label for="start-date">Start Date</label>
-                    <input type="date" id="start-date" value="2025-09-04">
+                    <input type="date" id="start-date" value="2025-09-04" onchange="saveWorkingState()">
                 </div>
                 <div>
                     <label for="end-date">End Date</label>
-                    <input type="date" id="end-date" value="2025-12-20">
+                    <input type="date" id="end-date" value="2025-12-20" onchange="saveWorkingState()">
                 </div>
             </div>
             <div class="shift-toggle-group" id="shift-toggle-group">
@@ -907,6 +921,103 @@
     };
 
     // --- Persistence Features (Using LocalStorage) ---
+    
+    // New function to save state automatically
+    function saveWorkingState() {
+        // Create simple object representation (similar to export)
+        const serializableSchedule = {};
+        for (const [key, val] of Object.entries(schedule)) {
+            serializableSchedule[key] = {
+                ...val,
+                date: toLocalISOString(val.date)
+            };
+        }
+
+        const state = {
+            raMatrix,
+            raNames,
+            unavailableDatesList,
+            shiftSize,
+            availabilityMonths,
+            startDate: document.getElementById('start-date').value,
+            endDate: document.getElementById('end-date').value,
+            schedule: serializableSchedule
+        };
+        
+        localStorage.setItem('ra_scheduler_working_state', JSON.stringify(state));
+        
+        if (raMatrix.length > 0) {
+            updateFileStatusUI(true);
+        }
+    }
+    
+    // New function to load state
+    function loadWorkingState() {
+        const json = localStorage.getItem('ra_scheduler_working_state');
+        if (!json) {
+            // If no data, ensure UI is reset
+            setShiftSize(2, false); 
+            return;
+        }
+        
+        try {
+            const state = JSON.parse(json);
+            
+            // Restore Settings even if matrix empty
+            shiftSize = state.shiftSize || 2;
+            document.getElementById('start-date').value = state.startDate;
+            document.getElementById('end-date').value = state.endDate;
+            setShiftSize(shiftSize, false); // false = don't save again loop
+
+            if (!state.raMatrix || state.raMatrix.length === 0) return;
+            
+            // Restore Data
+            raMatrix = state.raMatrix;
+            raNames = state.raNames;
+            unavailableDatesList = state.unavailableDatesList;
+            availabilityMonths = state.availabilityMonths;
+            
+            // Restore schedule
+            if (state.schedule && Object.keys(state.schedule).length > 0) {
+                 schedule = {};
+                 for (const [key, val] of Object.entries(state.schedule)) {
+                    const dateStr = val.date.includes('T') ? val.date.split('T')[0] : val.date;
+                    schedule[key] = { ...val, date: new Date(dateStr + 'T00:00:00') };
+                }
+                const counts = calculateCurrentCounts();
+                const pairwise = calculatePairwise(counts);
+                displayCalendar();
+                displayMatrix();
+                displayShiftTotals(counts, pairwise);
+                showContent('calendar-view', document.querySelector('.tab-btn:first-child'));
+            }
+            
+            updateFileStatusUI(true);
+            
+        } catch (e) {
+            console.error("Failed to load working state", e);
+        }
+    }
+    
+    function clearWorkingState() {
+        if(!confirm("Are you sure you want to remove the current file and data?")) return;
+        localStorage.removeItem('ra_scheduler_working_state');
+        location.reload(); 
+    }
+
+    function updateFileStatusUI(hasData) {
+        const inputContainer = document.getElementById('excel-file');
+        const indicator = document.getElementById('file-loaded-indicator');
+        
+        if (hasData) {
+            inputContainer.style.display = 'none';
+            indicator.style.display = 'flex';
+        } else {
+            inputContainer.style.display = 'block';
+            inputContainer.value = ''; // clear input
+            indicator.style.display = 'none';
+        }
+    }
 
     function saveCurrentSchedule() {
         if (!raMatrix.length) {
@@ -992,6 +1103,7 @@
                 loadSpecificSchedule(data);
                 input.value = ''; // Reset input so same file can be selected again if needed
                 alert("Schedule imported successfully!");
+                saveWorkingState(); // Save the imported state immediately
             } catch (err) {
                 console.error(err);
                 alert("Error reading file. Please ensure it is a valid JSON file.");
@@ -1064,7 +1176,7 @@
 
         document.getElementById('start-date').value = data.startDate;
         document.getElementById('end-date').value = data.endDate;
-        setShiftSize(shiftSize);
+        setShiftSize(shiftSize, true); // True = update state
 
         const counts = calculateCurrentCounts();
         const pairwise = calculatePairwise(counts);
@@ -1090,7 +1202,7 @@
         return `${year}-${month}-${day}`;
     }
 
-    function setShiftSize(size) {
+    function setShiftSize(size, save = true) {
         shiftSize = size;
         const btn1 = document.getElementById('shift-1-person');
         const btn2 = document.getElementById('shift-2-person');
@@ -1101,6 +1213,7 @@
             btn1.classList.remove('active');
             btn2.classList.add('active');
         }
+        if (save) saveWorkingState();
     }
 
     function setSidebarSort(mode) {
@@ -1279,6 +1392,8 @@
         displayMatrix();
         displayShiftTotals(counts, pairwise);
         
+        saveWorkingState(); // Auto-save
+
         // Return to slots view in modal
         renderEditSlots(dateKey);
     }
@@ -1522,6 +1637,8 @@
         displayCalendar();
         displayMatrix();
         displayShiftTotals(updatedCounts, pairwiseMatrix);
+        
+        saveWorkingState(); // Auto-save
     }
 
     function createCalendar() {
@@ -1793,6 +1910,10 @@
 
                 // 3. Generate initial schedule
                 generateRandomSchedule();
+                
+                // 4. Save state
+                saveWorkingState();
+                
             } catch (error) {
                 console.error("Error processing data:", error);
                 alert("An error occurred while processing the file. Check console for details.");
@@ -1831,6 +1952,8 @@
         
         // Switch to Calendar Tab
         showContent('calendar-view', document.querySelector('.tab-btn:first-child'));
+        
+        saveWorkingState(); // Auto-save
     }
     
     document.addEventListener('DOMContentLoaded', () => {
@@ -1840,7 +1963,8 @@
         document.getElementById('show-holidays-toggle').addEventListener('change', () => {
              if (Object.keys(schedule).length > 0) displayCalendar();
         });
-        setShiftSize(2);
+        
+        loadWorkingState(); // Load saved state on refresh
     });
 </script>
 
